@@ -1,2 +1,2 @@
 const bcrypt = require('bcrypt')
-console.log(bcrypt.hashSync('superadmin@123' , 10))
+console.log(bcrypt.hashSync('subadmin@123' , 10))

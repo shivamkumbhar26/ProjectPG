@@ -22,7 +22,6 @@ function auth(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     req.user = payload;
-    console.log(req.user);
     next();
   } catch (err) {
     res.send(result.createResult("Token is Invalid"));
