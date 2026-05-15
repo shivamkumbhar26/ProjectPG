@@ -6,18 +6,20 @@ function auth(req, res, next) {
     "/auth/login",
     "/auth/register",
     "/auth/resend-otp",
-    "/verify-otp"
+    "/verify-otp",
   ];
 
-  if (allAllowedUrls.includes(req.url)) {
+  if (
+    allAllowedUrls.includes(req.url) ||
+    req.url.startsWith("/pgs") || // public PG search + detail
+    req.url.startsWith("/review/") // public reviews
+  ) {
     return next();
   }
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
 
-  const authHeader = req.headers.authorization
-  const token = authHeader && authHeader.split(' ')[1]
-
-  if (!token) 
-    return res.send(result.createResult("Token is missing"));
+  if (!token) return res.send(result.createResult("Token is missing"));
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -28,4 +30,4 @@ function auth(req, res, next) {
   }
 }
 
-module.exports = auth
+module.exports = auth;

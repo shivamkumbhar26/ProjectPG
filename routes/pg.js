@@ -73,7 +73,6 @@ function verifyPgOwner(pgId, ownerId, callback) {
 // ============================================================
 router.post('/owner/pg/create', checkOwner, (req, res) => {
 
-    const userId = req.user.userId
     const {
         title, description, address_line, area, city,
         district, pincode, latitude, longitude,
@@ -90,6 +89,8 @@ router.post('/owner/pg/create', checkOwner, (req, res) => {
         return res.send(result.createResult("gender_allowed must be male, female or any"))
     }
 
+    const userId = req.user.userId
+    
     // Check owner is approved
     getApprovedOwner(userId, (err, ownerId) => {
         if (err) return res.send(result.createResult(err))
@@ -330,84 +331,161 @@ router.post('/owner/pg/:pgId/room', checkOwner, (req, res) => {
     const userId = req.user.userId
 
     if (!room_category_id || !room_number) {
-        return res.send(result.createResult("room_category_id and room_number are required"))
+        return res.send(
+            result.createResult("room_category_id and room_number are required")
+        )
     }
 
     getApprovedOwner(userId, (err, ownerId) => {
-        if (err) return res.send(result.createResult(err))
+
+        if (err) {
+            return res.send(result.createResult(err))
+        }
 
         verifyPgOwner(pgId, ownerId, (err) => {
-            if (err) return res.send(result.createResult(err))
+
+            if (err) {
+                return res.send(result.createResult(err))
+            }
 
             // Verify room category belongs to this PG
             const checkCatSql = `
-                SELECT id, total_units FROM room_categories
+                SELECT id, total_units
+                FROM room_categories
                 WHERE id = ? AND pg_id = ?
             `
+
             pool.query(checkCatSql, [room_category_id, pgId], (err, catData) => {
-                if (err)               return res.send(result.createResult("Database error, try later"))
-                if (catData.length === 0) return res.send(result.createResult("Room category not found for this PG"))
+
+                if (err) {
+                    return res.send(
+                        result.createResult("Database error, try later")
+                    )
+                }
+
+                if (catData.length === 0) {
+                    return res.send(
+                        result.createResult("Room category not found for this PG")
+                    )
+                }
 
                 const totalUnits = catData[0].total_units
 
-                // Insert room
-                const insertSql = `
-                    INSERT INTO rooms (pg_id, room_category_id, room_number, floor, notes)
-                    VALUES (?,?,?,?,?)
+                // Check if category is already complete
+                const checkCompleteSql = `
+                    SELECT rooms_entered
+                    FROM room_categories
+                    WHERE id = ? AND pg_id = ?
                 `
-                pool.query(insertSql, [
-                    pgId, room_category_id, room_number,
-                    floor || null, notes || null
-                ], (err, data) => {
+
+                pool.query(checkCompleteSql, [room_category_id, pgId], (err, data) => {
+
                     if (err) {
-                        // Duplicate room number error
-                        if (err.code === 'ER_DUP_ENTRY') {
-                            return res.send(result.createResult("Room number already exists in this PG"))
-                        }
-                        return res.send(result.createResult("Failed to add room"))
+                        return res.send(
+                            result.createResult("Database error, try later")
+                        )
                     }
 
-                    const newRoomId = data.insertId
+                    if (data.length === 0) {
+                        return res.send(
+                            result.createResult("Room category not found")
+                        )
+                    }
 
-                    // Auto-check: count rooms for this category
-                    const countSql = `
-                        SELECT COUNT(*) AS roomCount
-                        FROM rooms
-                        WHERE room_category_id = ? AND pg_id = ?
+                    if (data[0].rooms_entered === 1) {
+                        return res.send(
+                            result.createResult("All rooms already entered for this category")
+                        )
+                    }
+
+                    // Insert room
+                    const insertSql = `
+                        INSERT INTO rooms (
+                            pg_id,
+                            room_category_id,
+                            room_number,
+                            floor,
+                            notes
+                        )
+                        VALUES (?,?,?,?,?)
                     `
-                    pool.query(countSql, [room_category_id, pgId], (err, countData) => {
+
+                    pool.query(insertSql, [
+                        pgId,
+                        room_category_id,
+                        room_number,
+                        floor || null,
+                        notes || null
+                    ], (err, data) => {
+
                         if (err) {
-                            // Room is added, just skip the auto-check
-                            return res.send(result.createResult(null, {
-                                message: "Room added successfully",
-                                roomId: newRoomId
-                            }))
+
+                            // Duplicate room number
+                            if (err.code === 'ER_DUP_ENTRY') {
+                                return res.send(
+                                    result.createResult("Room number already exists in this PG")
+                                )
+                            }
+
+                            return res.send(
+                                result.createResult("Failed to add room")
+                            )
                         }
 
-                        const roomCount = countData[0].roomCount
+                        const newRoomId = data.insertId
 
-                        if (roomCount >= totalUnits) {
-                            // All rooms entered — set rooms_entered = TRUE
-                            const updateCatSql = `
-                                UPDATE room_categories
-                                SET rooms_entered = 1
-                                WHERE id = ?
-                            `
-                            pool.query(updateCatSql, [room_category_id], (err) => {
+                        // Count rooms for this category
+                        const countSql = `
+                            SELECT COUNT(*) AS roomCount
+                            FROM rooms
+                            WHERE room_category_id = ? AND pg_id = ?
+                        `
+
+                        pool.query(countSql, [room_category_id, pgId], (err, countData) => {
+
+                            if (err) {
                                 return res.send(result.createResult(null, {
-                                    message: `Room added. All ${totalUnits} rooms entered for this category.`,
-                                    roomId: newRoomId,
-                                    allRoomsEntered: true
+                                    message: "Room added successfully",
+                                    roomId: newRoomId
                                 }))
-                            })
-                        } else {
-                            return res.send(result.createResult(null, {
-                                message: `Room added. ${totalUnits - roomCount} more room(s) needed for this category.`,
-                                roomId: newRoomId,
-                                allRoomsEntered: false,
-                                remaining: totalUnits - roomCount
-                            }))
-                        }
+                            }
+
+                            const roomCount = countData[0].roomCount
+
+                            // All rooms entered
+                            if (roomCount >= totalUnits) {
+
+                                const updateCatSql = `
+                                    UPDATE room_categories
+                                    SET rooms_entered = 1
+                                    WHERE id = ?
+                                `
+
+                                pool.query(updateCatSql, [room_category_id], (err) => {
+
+                                    if (err) {
+                                        return res.send(
+                                            result.createResult("Room added but failed to update category")
+                                        )
+                                    }
+
+                                    return res.send(result.createResult(null, {
+                                        message: `Room added. All ${totalUnits} rooms entered for this category.`,
+                                        roomId: newRoomId,
+                                        allRoomsEntered: true
+                                    }))
+                                })
+
+                            } else {
+
+                                return res.send(result.createResult(null, {
+                                    message: `Room added. ${totalUnits - roomCount} more room(s) needed for this category.`,
+                                    roomId: newRoomId,
+                                    allRoomsEntered: false,
+                                    remaining: totalUnits - roomCount
+                                }))
+                            }
+                        })
                     })
                 })
             })
