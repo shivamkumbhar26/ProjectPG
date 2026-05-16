@@ -166,7 +166,10 @@ router.get('/pgs', (req, res) => {
             // Attach cover image to each PG
             const pgsWithCover = pgs.map(pg => ({
                 ...pg,
-                amenities:  JSON.parse(pg.amenities || '[]'),
+                amenities:
+                    typeof pg.amenities === 'string'
+                        ? JSON.parse(pg.amenities)
+                        : (pg.amenities || []),
                 coverImage: coverMap[pg.id] || null
             }))
 
@@ -219,7 +222,9 @@ router.get('/pgs/:pgId', (req, res) => {
         if (pgData.length === 0) return res.send(result.createResult("PG not found"))
 
         const pg = pgData[0]
-        pg.amenities = JSON.parse(pg.amenities || '[]')
+        pg.amenities =  typeof pg.amenities === 'string'
+                        ? JSON.parse(pg.amenities)
+                        : (pg.amenities || []) ;
 
         // Get all PG images
         const imgSql = `

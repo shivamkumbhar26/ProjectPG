@@ -273,6 +273,47 @@ router.post('/owner/pg/:pgId/room-category', checkOwner, (req, res) => {
     })
 })
 
+// GET ROOM CATEGORY IMAGE UPLOAD URL
+// POST /owner/room-category/:categoryId/get-image-upload-url
+// Body: { fileType, fileSize }
+
+router.post('/owner/room-category/:categoryId/get-image-upload-url', checkOwner, async (req, res) => {
+
+    const { categoryId }         = req.params
+    const { fileType, fileSize } = req.body
+    const userId                 = req.user.userId
+
+    if (!fileType || !fileSize) {
+        return res.send(result.createResult("fileType and fileSize are required"))
+    }
+
+    const validation = s3.validateFile(fileType, fileSize)
+    if (!validation.valid) {
+        return res.send(result.createResult(validation.message))
+    }
+
+    // Verify category belongs to this owner
+    const checkSql = `
+        SELECT rc.id FROM room_categories rc
+        JOIN pgs p    ON p.id  = rc.pg_id
+        JOIN owners o ON o.id  = p.owner_id
+        WHERE rc.id = ? AND o.user_id = ?
+    `
+    pool.query(checkSql, [categoryId, userId], async (err, data) => {
+        if (err)               return res.send(result.createResult("Database error, try later"))
+        if (data.length === 0) return res.send(result.createResult("Room category not found"))
+
+        const fileKey = s3.generateFileKey('room-images', categoryId, 'room', fileType)
+
+        try {
+            const { uploadUrl } = await s3.getUploadUrl(fileKey, fileType)
+            return res.send(result.createResult(null, { uploadUrl, fileKey }))
+        } catch {
+            return res.send(result.createResult("Failed to generate upload URL"))
+        }
+    })
+})
+
 
 // ============================================================
 //  3b. SAVE ROOM CATEGORY IMAGE
@@ -516,7 +557,7 @@ router.post('/owner/pg/:pgId/submit', checkOwner, (req, res) => {
         verifyPgOwner(pgId, ownerId, (err, pg) => {
             if (err) return res.send(result.createResult(err))
 
-            if (pg.verification_status !== 'PENDING_VERIFICATION' &&
+            if (pg.verification_status !== 'DRAFT' &&
                 pg.verification_status !== 'REJECTED') {
                 return res.send(result.createResult("PG is already submitted or approved"))
             }

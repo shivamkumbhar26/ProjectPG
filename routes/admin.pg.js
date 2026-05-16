@@ -378,7 +378,7 @@ router.post('/owner/pg/:pgId/resubmit', checkOwner, (req, res) => {
         if (err)               return res.send(result.createResult("Database error, try later"))
         if (data.length === 0) return res.send(result.createResult("PG not found"))
 
-        if (data[0].verification_status !== 'REJECTED') {
+        if (data[0].verification_status !== 'DRAFT') {
             return res.send(result.createResult("Only rejected PGs can be resubmitted"))
         }
 

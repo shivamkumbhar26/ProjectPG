@@ -83,7 +83,7 @@ router.post('/owner/get-upload-url', checkOwner, async (req, res) => {
 //  In real S3, frontend uploads directly to S3 using uploadUrl.
 //  In simulation, frontend sends file to this endpoint instead.
 //
-//  REMOVE THIS ROUTE when switching to real AWS.
+//  WILL REMOVE THIS ROUTE when switching to real AWS.
 // ============================================================
 router.post('/simulate-upload/:fileKey', upload.single('file'), (req, res) => {
 
